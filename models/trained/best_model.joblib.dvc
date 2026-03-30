@@ -1,0 +1,11 @@
+# DVC metadata for best_model.joblib
+{
+  "outs": [
+    {
+      "md5": "34e2bac463f238171b3611f1a0e793eb",
+      "size": 362786,
+      "hash": "md5",
+      "path": "models/trained/best_model.joblib"
+    }
+  ]
+}

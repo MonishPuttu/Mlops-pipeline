@@ -1,0 +1,52 @@
+# dvc.yaml - Pipeline definition for DVC
+# Run with: dvc repro (when DVC is installed)
+stages:
+  data_ingestion:
+    cmd: python pipelines/01_data_ingestion.py
+    outs:
+      - data/raw/drug_trials_train.csv
+      - data/raw/drug_trials_production.csv
+
+  data_validation:
+    cmd: python pipelines/02_data_validation.py
+    deps:
+      - data/raw/drug_trials_train.csv
+    outs:
+      - data/processed/validation_report.json
+
+  feature_engineering:
+    cmd: python pipelines/03_feature_engineering.py
+    deps:
+      - data/raw/drug_trials_train.csv
+      - data/raw/drug_trials_production.csv
+    outs:
+      - data/processed/features_train.csv
+      - data/processed/reference.csv
+      - data/processed/features_production.csv
+
+  model_training:
+    cmd: python pipelines/04_model_training.py
+    deps:
+      - data/processed/features_train.csv
+    outs:
+      - models/trained/best_model.joblib
+      - models/trained/model_metadata.json
+    metrics:
+      - models/trained/model_metadata.json:
+          cache: false
+
+  model_validation:
+    cmd: python pipelines/05_model_validation.py
+    deps:
+      - models/trained/best_model.joblib
+      - data/processed/features_production.csv
+    outs:
+      - data/processed/qualification_report.json
+
+  model_registry:
+    cmd: python pipelines/06_model_registry.py
+    deps:
+      - models/trained/best_model.joblib
+      - data/processed/qualification_report.json
+    outs:
+      - models/registry/current_production.json

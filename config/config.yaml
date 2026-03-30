@@ -1,0 +1,47 @@
+# config/config.yaml - Central configuration for all pipeline components
+
+project:
+  name: pharma-mlops
+  version: "1.0.0"
+
+paths:
+  raw_data: data/raw
+  processed_data: data/processed
+  features: data/features
+  models: models/trained
+  registry: models/registry
+  logs: logs
+  audit: audit
+
+mlflow:
+  tracking_uri: http://127.0.0.1:5000
+  experiment_name: pharma-drug-efficacy
+  artifact_location: ./mlruns
+
+model:
+  name: drug_efficacy_classifier
+  target_column: efficacy_label
+  test_size: 0.2
+  random_state: 42
+  cv_folds: 5
+
+validation:
+  min_accuracy: 0.75
+  min_precision: 0.70
+  min_recall: 0.70
+  min_f1: 0.72
+  max_drift_score: 0.15
+
+serving:
+  host: "0.0.0.0"
+  port: 8000
+
+monitoring:
+  host: "0.0.0.0"
+  port: 8001
+  drift_check_interval_seconds: 30
+  reference_data_path: data/processed/reference.csv
+
+ui:
+  host: "0.0.0.0"
+  port: 8501

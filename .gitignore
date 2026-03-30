@@ -1,0 +1,62 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+
+# ── Environment variables ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Generated data (run python run.py to recreate) ───────────────────────────
+data/raw/
+data/processed/
+data/features/
+
+# ── Trained models (large binary files) ──────────────────────────────────────
+models/trained/*.joblib
+models/trained/feature_importance_*.csv
+models/registry/
+
+# ── MLflow tracking ───────────────────────────────────────────────────────────
+mlruns/
+mlflow.db
+
+# ── Logs and audit trail ──────────────────────────────────────────────────────
+logs/
+audit/
+
+# ── Monitoring output ─────────────────────────────────────────────────────────
+monitoring/latest_drift_report.json
+
+# ── DVC ───────────────────────────────────────────────────────────────────────
+dvc_storage/
+/tmp
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ── IDE and OS ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini

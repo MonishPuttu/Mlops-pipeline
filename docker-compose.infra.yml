@@ -1,0 +1,128 @@
+version: "3.9"
+
+networks:
+  pharma-net:
+    driver: bridge
+    name: pharma-net
+
+volumes:
+  minio-data:
+  postgres-data:
+  redis-data:
+  pgadmin-data:
+
+services:
+  # ── MinIO — S3-compatible object storage ──────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    volumes:
+      - minio-data:/data
+    networks:
+      - pharma-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  # ── MinIO initializer — creates all buckets on first start ─────
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - pharma-net
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Setting up MinIO buckets...' &&
+      mc alias set local http://minio:9000 minioadmin minioadmin123 &&
+      mc mb --ignore-existing local/pharma-raw &&
+      mc mb --ignore-existing local/pharma-processed &&
+      mc mb --ignore-existing local/pharma-models &&
+      mc mb --ignore-existing local/pharma-mlflow &&
+      mc mb --ignore-existing local/pharma-audit &&
+      mc mb --ignore-existing local/pharma-features &&
+      mc version enable local/pharma-raw &&
+      mc version enable local/pharma-processed &&
+      mc version enable local/pharma-models &&
+      mc version enable local/pharma-mlflow &&
+      mc version enable local/pharma-audit &&
+      mc version enable local/pharma-features &&
+      echo 'Done. All 6 buckets created with versioning enabled.'
+      "
+
+  # ── PostgreSQL 15 — metadata for MLflow + Airflow ─────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: pharmaadmin
+      POSTGRES_PASSWORD: pharmapass123
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/init_postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - pharma-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pharmaadmin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Redis 7 — Feast online feature store + caching ────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    networks:
+      - pharma-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── pgAdmin4 — PostgreSQL web UI ───────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@pharma.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./infra/pgadmin_servers.json:/pgadmin4/servers.json:ro
+    networks:
+      - pharma-net
+    depends_on:
+      postgres:
+        condition: service_healthy

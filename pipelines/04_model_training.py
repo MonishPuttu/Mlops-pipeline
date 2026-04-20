@@ -106,11 +106,7 @@ def run():
     logger.info(f"Train: {len(X_train)} | Test: {len(X_test)} | Features: {len(available_features)}")
     logger.info(f"Efficacy rate — Train: {y_train.mean():.2%} | Test: {y_test.mean():.2%}")
 
-    # Configure MLflow — use local file store (no server needed)
-    # When MLflow server is running, change this to cfg["mlflow"]["tracking_uri"]
-    mlflow_dir = Path("./mlruns")
-    mlflow_dir.mkdir(exist_ok=True)
-    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
     mlflow.set_experiment(cfg["mlflow"]["experiment_name"])
 
     best_model = None

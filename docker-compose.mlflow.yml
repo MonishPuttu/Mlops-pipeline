@@ -1,0 +1,35 @@
+networks:
+  pharma-net:
+    external: true
+
+services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mlflow
+    image: pharma-mlflow:local
+    container_name: mlflow
+    restart: unless-stopped
+    ports:
+      - "5002:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://mlflow:mlflowpass123@postgres:5432/mlflow_db
+      MLFLOW_ARTIFACT_ROOT: s3://pharma-mlflow/
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin123
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql://mlflow:mlflowpass123@postgres:5432/mlflow_db
+      --artifacts-destination s3://pharma-mlflow/
+      --serve-artifacts
+    networks:
+      - pharma-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s

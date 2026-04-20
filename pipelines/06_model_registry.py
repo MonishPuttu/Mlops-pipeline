@@ -37,10 +37,8 @@ def run():
     if not qual["qualified_for_production"]:
         raise RuntimeError("Cannot register unqualified model.")
 
-    mlflow_dir = Path("./mlruns")
-    mlflow_dir.mkdir(exist_ok=True)
-    mlflow.set_tracking_uri("sqlite:///mlflow.db")
-    client = MlflowClient(tracking_uri="sqlite:///mlflow.db")
+    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
+    client = MlflowClient(tracking_uri=cfg["mlflow"]["tracking_uri"])
     model_name = cfg["model"]["name"]
     run_id     = meta["best_run_id"]
 

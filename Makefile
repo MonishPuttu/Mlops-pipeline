@@ -80,3 +80,18 @@ clean:
 	@read -p "Type 'yes' to confirm: " confirm && [ "$$confirm" = "yes" ]
 	docker compose -f docker-compose.infra.yml down -v
 	@echo "Done."
+
+mlflow-up:
+	docker compose -f docker-compose.mlflow.yml up -d
+	@echo "Waiting 25s for MLflow to initialize..."
+	@sleep 25
+	@docker compose -f docker-compose.mlflow.yml ps
+
+mlflow-down:
+	docker compose -f docker-compose.mlflow.yml down
+
+mlflow-logs:
+	docker compose -f docker-compose.mlflow.yml logs -f
+
+verify-day2:
+	@bash infra/verify_day2.sh

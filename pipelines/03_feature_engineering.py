@@ -1,6 +1,3 @@
-# pipelines/03_feature_engineering.py
-# Builds features and stores them in a local SQLite-based feature store (simulates Feast)
-
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,11 +13,6 @@ logger = get_logger("feature_engineering")
 
 
 class LocalFeatureStore:
-    """
-    Simulates Feast feature store using local SQLite.
-    Stores feature sets with versioning and retrieval.
-    """
-
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._init_db()
@@ -58,15 +50,12 @@ class LocalFeatureStore:
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (name, version, ts, len(df), len(df.columns),
                   ",".join(df.columns.tolist()), description))
-
             for _, row in df.iterrows():
                 conn.execute("""
                     INSERT OR REPLACE INTO feature_data
                     (sample_id, feature_set_version, features_json, created_at)
                     VALUES (?, ?, ?, ?)
-                """, (row.get("sample_id", "UNKNOWN"), version,
-                      row.to_json(), ts))
-
+                """, (row.get("sample_id", "UNKNOWN"), version, row.to_json(), ts))
         logger.info(f"Saved feature set '{name}' v{version}: {len(df)} samples, {len(df.columns)} features")
 
     def get_feature_sets(self):
@@ -84,16 +73,8 @@ class LocalFeatureStore:
 
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Pharma-specific feature engineering:
-    - Lipinski rule violations (drug-likeness)
-    - Bioavailability score
-    - Inflammation composite score
-    - Renal function adjusted dose
-    """
     feat = df.copy()
 
-    # --- Drug-likeness features (Lipinski's Rule of Five) ---
     feat["ro5_mw_ok"]  = (feat["mol_weight"] <= 500).astype(int)
     feat["ro5_logp_ok"]= (feat["logp"] <= 5).astype(int)
     feat["ro5_hbd_ok"] = (feat["hbd"] <= 5).astype(int)
@@ -104,47 +85,34 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     )
     feat["is_drug_like"] = (feat["ro5_violations"] <= 1).astype(int)
 
-    # --- Bioavailability proxy score ---
     feat["bioavailability_score"] = (
         (1 - feat["ro5_violations"] / 4) * 0.5 +
         ((feat["tpsa"] < 140).astype(float)) * 0.3 +
         ((feat["rotatable_bonds"] < 10).astype(float)) * 0.2
     ).clip(0, 1)
 
-    # --- Inflammation composite (normalized) ---
     feat["inflammation_score"] = (
         feat["baseline_crp"]  / feat["baseline_crp"].max() * 0.4 +
         feat["baseline_il6"]  / feat["baseline_il6"].max() * 0.35 +
         feat["baseline_tnfa"] / feat["baseline_tnfa"].max() * 0.25
     ).clip(0, 1)
 
-    # --- Renal function adjusted dose ---
-    # Cockcroft-Gault inspired: dose adjusted for renal clearance
     feat["renal_adjusted_dose"] = (
         feat["dose_mg"] * (feat["creatinine_clearance"] / 90)
     ).clip(0, 800)
 
-    # --- Body Surface Area proxy ---
-    # Using weight-based approximation
     feat["bsa_proxy"] = (feat["patient_weight_kg"] / 70) ** 0.5
-
-    # --- Dose per BSA (mg/m^2 equivalent) ---
     feat["dose_per_bsa"] = feat["dose_mg"] / feat["bsa_proxy"]
-
-    # --- Treatment intensity ---
     feat["treatment_intensity"] = feat["dose_mg"] * feat["treatment_days"] / 1000
 
-    # --- Age-related metabolism proxy ---
     feat["age_metabolism_factor"] = np.where(
         feat["patient_age"] < 30, 1.2,
         np.where(feat["patient_age"] > 65, 0.7, 1.0)
     )
 
-    # --- Log-transform skewed biomarkers ---
     for col in ["baseline_crp", "baseline_il6", "baseline_tnfa"]:
         feat[f"log_{col}"] = np.log1p(feat[col])
 
-    # Drop raw metadata not needed for training
     feat = feat.drop(columns=["ingestion_timestamp"], errors="ignore")
 
     return feat
@@ -162,28 +130,23 @@ def run():
     logger.info("STAGE 3: FEATURE ENGINEERING")
     logger.info("=" * 60)
 
-    # Load validated training data
     train_file = raw_path / "drug_trials_train.csv"
     df = pd.read_csv(train_file)
     logger.info(f"Loaded {len(df)} training samples")
 
-    # Engineer features
     logger.info("Engineering pharma features...")
     df_feat = engineer_features(df)
 
     n_new_features = len(df_feat.columns) - len(df.columns)
     logger.info(f"Created {n_new_features} new features. Total columns: {len(df_feat.columns)}")
 
-    # Save to processed
     processed_file = proc_path / "features_train.csv"
     df_feat.to_csv(processed_file, index=False)
 
-    # Save reference data for monitoring (used by drift detection)
     reference_file = proc_path / "reference.csv"
     df_feat.to_csv(reference_file, index=False)
     logger.info(f"Reference dataset saved → {reference_file}")
 
-    # Also engineer features for production batch
     prod_raw = raw_path / "drug_trials_production.csv"
     if prod_raw.exists():
         df_prod = pd.read_csv(prod_raw)
@@ -192,7 +155,17 @@ def run():
         df_prod_feat.to_csv(prod_feat_file, index=False)
         logger.info(f"Production features saved → {prod_feat_file}")
 
-    # Save to local feature store
+    try:
+        from config.storage import upload_csv
+        proc_bucket = cfg["minio"]["buckets"]["processed"]
+        upload_csv(df_feat,      proc_bucket, "features_train.csv")
+        upload_csv(df_feat,      proc_bucket, "reference.csv")
+        if prod_raw.exists():
+            upload_csv(df_prod_feat, proc_bucket, "features_production.csv")
+        logger.info(f"Uploaded processed features to MinIO bucket: {proc_bucket}")
+    except Exception as e:
+        logger.warning(f"MinIO upload failed (local files still saved): {e}")
+
     store = LocalFeatureStore(str(feat_path / "feature_store.db"))
     store.save_feature_set(
         name="drug_efficacy_features",

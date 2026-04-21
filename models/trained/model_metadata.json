@@ -32,7 +32,7 @@
     "log_baseline_tnfa"
   ],
   "target_column": "efficacy_label",
-  "best_run_id": "7ca741e0ef25495389610403e29f34da",
+  "best_run_id": "fbc274bba639462c8d4bf1e2fb3d8caf",
   "best_f1": 0.9863,
-  "trained_at": "2026-03-30T06:40:42.879047"
+  "trained_at": "2026-04-21T04:53:22.678773"
 }

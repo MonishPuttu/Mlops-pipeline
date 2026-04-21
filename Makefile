@@ -95,3 +95,6 @@ mlflow-logs:
 
 verify-day2:
 	@bash infra/verify_day2.sh
+
+verify-day3:
+	@bash infra/verify_day3.sh

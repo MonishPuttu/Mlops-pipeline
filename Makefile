@@ -98,3 +98,21 @@ verify-day2:
 
 verify-day3:
 	@bash infra/verify_day3.sh
+
+airflow-init:
+	docker compose -f docker-compose.airflow.yml run --rm airflow-init
+
+airflow-up:
+	docker compose -f docker-compose.airflow.yml up -d airflow-webserver airflow-scheduler
+	@echo "Waiting 40s for Airflow to initialize..."
+	@sleep 40
+	@docker compose -f docker-compose.airflow.yml ps
+
+airflow-down:
+	docker compose -f docker-compose.airflow.yml down
+
+airflow-logs:
+	docker compose -f docker-compose.airflow.yml logs -f
+
+verify-day4:
+	@bash infra/verify_day4.sh

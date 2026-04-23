@@ -116,3 +116,9 @@ airflow-logs:
 
 verify-day4:
 	@bash infra/verify_day4.sh
+
+deploy-serving:
+	@bash scripts/deploy_serving.sh
+
+verify-day5:
+	@bash infra/verify_day5.sh

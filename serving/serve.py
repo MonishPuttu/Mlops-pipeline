@@ -1,7 +1,3 @@
-# serving/serve.py
-# FastAPI REST API for model inference
-# Run: python serving/serve.py
-
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,45 +11,67 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
 from config.utils import load_config, get_logger, audit_log
+
+from prometheus_client import (
+    Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+)
 
 logger  = get_logger("serving")
 cfg     = load_config()
 app     = FastAPI(
     title="Pharma MLOps - Drug Efficacy Prediction API",
-    description="Predicts drug efficacy for pharma clinical use cases",
     version="1.0.0"
 )
 
-# Global model state
-MODEL       = None
+MODEL        = None
 FEATURE_COLS = None
-REGISTRY    = None
-PREDICTION_LOG = []  # In-memory log; production would use a DB
+REGISTRY     = None
+PREDICTION_LOG = []
+
+PREDICTIONS_TOTAL = Counter(
+    "pharma_predictions_total",
+    "Total predictions made",
+    ["prediction_class", "confidence"]
+)
+PREDICTION_LATENCY = Histogram(
+    "pharma_prediction_latency_seconds",
+    "Prediction request latency",
+    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0]
+)
+MODEL_INFO = Gauge(
+    "pharma_model_info",
+    "Current model metadata",
+    ["model_name", "version"]
+)
+REQUESTS_TOTAL = Counter(
+    "pharma_requests_total",
+    "Total HTTP requests",
+    ["method", "endpoint", "status"]
+)
 
 
 class DrugTrialInput(BaseModel):
-    """Input schema for a single drug trial prediction."""
-    mol_weight:             float = Field(..., ge=50,  le=1000,  description="Molecular weight (Da)")
-    logp:                   float = Field(..., ge=-5,  le=10,    description="Lipophilicity (LogP)")
-    tpsa:                   float = Field(..., ge=0,   le=300,   description="Topological polar surface area")
-    hbd:                    float = Field(..., ge=0,   le=20,    description="Hydrogen bond donors")
-    hba:                    float = Field(..., ge=0,   le=20,    description="Hydrogen bond acceptors")
-    rotatable_bonds:        float = Field(default=3,  ge=0,  le=30)
-    aromatic_rings:         float = Field(default=2,  ge=0,  le=10)
-    patient_age:            float = Field(..., ge=18,  le=100,   description="Patient age (years)")
-    patient_weight_kg:      float = Field(..., ge=30,  le=200,   description="Patient weight (kg)")
-    creatinine_clearance:   float = Field(default=90, ge=10, le=200, description="Renal function (mL/min)")
-    is_male:                float = Field(default=1,  ge=0,  le=1)
-    baseline_crp:           float = Field(default=5,  ge=0,  le=200, description="C-reactive protein (mg/L)")
-    baseline_il6:           float = Field(default=10, ge=0,  le=500)
-    baseline_tnfa:          float = Field(default=15, ge=0,  le=500)
-    baseline_wbc:           float = Field(default=7,  ge=0,  le=50)
-    dose_mg:                float = Field(..., description="Dose in mg")
-    treatment_days:         float = Field(..., ge=1,  le=365, description="Treatment duration (days)")
-    sample_id:              Optional[str] = Field(default=None, description="Optional sample identifier")
+    mol_weight:             float = Field(..., ge=50,  le=1000)
+    logp:                   float = Field(..., ge=-5,  le=10)
+    tpsa:                   float = Field(..., ge=0,   le=300)
+    hbd:                    float = Field(..., ge=0,   le=20)
+    hba:                    float = Field(..., ge=0,   le=20)
+    rotatable_bonds:        float = Field(default=3,   ge=0, le=30)
+    aromatic_rings:         float = Field(default=2,   ge=0, le=10)
+    patient_age:            float = Field(..., ge=18,  le=100)
+    patient_weight_kg:      float = Field(..., ge=30,  le=200)
+    creatinine_clearance:   float = Field(default=90,  ge=10, le=200)
+    is_male:                float = Field(default=1,   ge=0, le=1)
+    baseline_crp:           float = Field(default=5,   ge=0, le=200)
+    baseline_il6:           float = Field(default=10,  ge=0, le=500)
+    baseline_tnfa:          float = Field(default=15,  ge=0, le=500)
+    baseline_wbc:           float = Field(default=7,   ge=0, le=50)
+    dose_mg:                float = Field(...)
+    treatment_days:         float = Field(..., ge=1,   le=365)
+    sample_id:              Optional[str] = Field(default=None)
 
 
 class BatchInput(BaseModel):
@@ -61,12 +79,12 @@ class BatchInput(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    sample_id: Optional[str]
-    prediction: int
-    probability_effective: float
+    sample_id:               Optional[str]
+    prediction:              int
+    probability_effective:   float
     probability_ineffective: float
-    confidence: str
-    predicted_at: str
+    confidence:              str
+    predicted_at:            str
 
 
 def load_model():
@@ -74,18 +92,18 @@ def load_model():
     registry_file = Path(cfg["paths"]["registry"]) / "current_production.json"
     if not registry_file.exists():
         raise RuntimeError("No production model found. Run the full pipeline first.")
-
     with open(registry_file) as f:
         REGISTRY = json.load(f)
-
-    model_path = REGISTRY["model_path"]
-    MODEL = joblib.load(model_path)
+    MODEL = joblib.load(REGISTRY["model_path"])
     FEATURE_COLS = REGISTRY["feature_columns"]
-    logger.info(f"Model loaded: {REGISTRY['model_name']} v{REGISTRY['version']} (F1={REGISTRY['best_f1']})")
+    MODEL_INFO.labels(
+        model_name=REGISTRY["model_name"],
+        version=str(REGISTRY["version"])
+    ).set(1)
+    logger.info(f"Model loaded: {REGISTRY['model_name']} v{REGISTRY['version']}")
 
 
 def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Adds engineered features matching the training pipeline."""
     feat = df.copy()
     feat["ro5_mw_ok"]   = (feat["mol_weight"] <= 500).astype(int)
     feat["ro5_logp_ok"] = (feat["logp"] <= 5).astype(int)
@@ -118,20 +136,31 @@ def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def predict_single(sample: DrugTrialInput) -> dict:
+    import time
+    start = time.perf_counter()
+
     row = pd.DataFrame([sample.model_dump()])
     row = add_engineered_features(row)
     available = [c for c in FEATURE_COLS if c in row.columns]
     X = row[available].fillna(0)
-    pred   = int(MODEL.predict(X)[0])
-    prob   = MODEL.predict_proba(X)[0]
-    p_eff  = round(float(prob[1]), 4)
-    p_ineff= round(float(prob[0]), 4)
-    conf   = "high" if max(prob) >= 0.80 else ("medium" if max(prob) >= 0.60 else "low")
+    pred  = int(MODEL.predict(X)[0])
+    prob  = MODEL.predict_proba(X)[0]
+    p_eff = round(float(prob[1]), 4)
+    p_inf = round(float(prob[0]), 4)
+    conf  = "high" if max(prob) >= 0.80 else ("medium" if max(prob) >= 0.60 else "low")
+
+    latency = time.perf_counter() - start
+    PREDICTION_LATENCY.observe(latency)
+    PREDICTIONS_TOTAL.labels(
+        prediction_class=str(pred),
+        confidence=conf
+    ).inc()
+
     return {
         "sample_id":              sample.sample_id or f"INFER_{datetime.utcnow().strftime('%H%M%S%f')}",
         "prediction":             pred,
         "probability_effective":  p_eff,
-        "probability_ineffective":p_ineff,
+        "probability_ineffective":p_inf,
         "confidence":             conf,
         "predicted_at":           datetime.utcnow().isoformat() + "Z",
     }
@@ -142,14 +171,19 @@ def startup_event():
     load_model()
 
 
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.get("/health")
 def health():
     return {
-        "status": "ok",
-        "model_loaded": MODEL is not None,
-        "model_name":   REGISTRY["model_name"] if REGISTRY else None,
-        "model_version":REGISTRY["version"]    if REGISTRY else None,
-        "timestamp":    datetime.utcnow().isoformat() + "Z",
+        "status":        "ok",
+        "model_loaded":  MODEL is not None,
+        "model_name":    REGISTRY["model_name"] if REGISTRY else None,
+        "model_version": REGISTRY["version"]    if REGISTRY else None,
+        "timestamp":     datetime.utcnow().isoformat() + "Z",
     }
 
 
@@ -167,10 +201,15 @@ def predict(sample: DrugTrialInput):
     try:
         result = predict_single(sample)
         PREDICTION_LOG.append(result)
-        audit_log("prediction_made", {"sample_id": result["sample_id"], "prediction": result["prediction"],
-                                       "confidence": result["confidence"]}, actor="serving_api")
+        REQUESTS_TOTAL.labels(method="POST", endpoint="/predict", status="200").inc()
+        audit_log("prediction_made", {
+            "sample_id":  result["sample_id"],
+            "prediction": result["prediction"],
+            "confidence": result["confidence"]
+        }, actor="serving_api")
         return result
     except Exception as e:
+        REQUESTS_TOTAL.labels(method="POST", endpoint="/predict", status="500").inc()
         logger.error(f"Prediction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -192,13 +231,11 @@ def predict_batch(batch: BatchInput):
 
 @app.get("/predictions/recent")
 def recent_predictions(limit: int = 50):
-    """Returns recent predictions (for monitoring dashboard)."""
     return {"predictions": PREDICTION_LOG[-limit:], "total": len(PREDICTION_LOG)}
 
 
 @app.post("/model/reload")
 def reload_model():
-    """Hot-reload model from registry (used after retraining)."""
     try:
         load_model()
         return {"status": "reloaded", "timestamp": datetime.utcnow().isoformat()}

@@ -1,7 +1,7 @@
 # Makefile — pharma-mlops (macOS Apple Silicon)
 # Place at: ~/pharma-mlops/Makefile
 
-.PHONY: help prereqs k3d infra-up infra-down infra-logs infra-ps verify-day1 \
+.PHONY: help prereqs k3d infra-up infra-down infra-logs infra-ps \
         pipeline test serve monitor dashboard clean
 
 help:
@@ -13,14 +13,14 @@ help:
 	@echo "  make prereqs      Check all prerequisites (run first)"
 	@echo "  make k3d          Install k3d + create k3s cluster"
 	@echo ""
-	@echo "  INFRASTRUCTURE  (Day 1)"
+	@echo "  INFRASTRUCTURE" 
 	@echo "  make infra-up     Start MinIO, PostgreSQL, Redis, pgAdmin"
 	@echo "  make infra-down   Stop infrastructure containers"
 	@echo "  make infra-logs   Tail infrastructure logs"
 	@echo "  make infra-ps     Show container status"
 	@echo "  make verify-day1  Run all Day 1 verification checks"
 	@echo ""
-	@echo "  PIPELINE  (existing)"
+	@echo "  PIPELINE"
 	@echo "  make pipeline     Run the full ML pipeline (python run.py)"
 	@echo "  make test         Run pytest test suite"
 	@echo "  make serve        Start model serving API"
@@ -54,9 +54,6 @@ infra-logs:
 
 infra-ps:
 	docker compose -f docker-compose.infra.yml ps
-
-verify-day1:
-	@bash infra/verify_day1.sh
 
 # ── Pipeline (your existing commands, unchanged) ───────────────
 pipeline:
@@ -93,12 +90,6 @@ mlflow-down:
 mlflow-logs:
 	docker compose -f docker-compose.mlflow.yml logs -f
 
-verify-day2:
-	@bash infra/verify_day2.sh
-
-verify-day3:
-	@bash infra/verify_day3.sh
-
 airflow-init:
 	docker compose -f docker-compose.airflow.yml run --rm airflow-init
 
@@ -114,11 +105,20 @@ airflow-down:
 airflow-logs:
 	docker compose -f docker-compose.airflow.yml logs -f
 
-verify-day4:
-	@bash infra/verify_day4.sh
-
 deploy-serving:
 	@bash scripts/deploy_serving.sh
 
-verify-day5:
-	@bash infra/verify_day5.sh
+monitoring-up:
+	docker compose -f docker-compose.monitoring.yml up -d
+	@echo "Waiting 20s for monitoring stack to initialize..."
+	@sleep 20
+	@docker compose -f docker-compose.monitoring.yml ps
+
+monitoring-down:
+	docker compose -f docker-compose.monitoring.yml down
+
+monitoring-logs:
+	docker compose -f docker-compose.monitoring.yml logs -f
+
+verify-day6:
+	@bash infra/verify_day6.sh

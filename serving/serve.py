@@ -16,8 +16,18 @@ from fastapi.responses import JSONResponse, Response
 from config.utils import load_config, get_logger, audit_log
 
 from prometheus_client import (
-    Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+    Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
 )
+
+def _metric(cls, name, desc, labels=None, **kwargs):
+    try:
+        return cls(name, desc, labels or [], **kwargs) if labels else cls(name, desc, **kwargs)
+    except ValueError:
+        collectors = list(REGISTRY._names_to_collectors.values())
+        for c in collectors:
+            if hasattr(c, '_name') and c._name in (name, name + '_total'):
+                return c
+        return cls(name, desc, labels or [], **kwargs) if labels else cls(name, desc, **kwargs)
 
 logger  = get_logger("serving")
 cfg     = load_config()
@@ -31,26 +41,10 @@ FEATURE_COLS = None
 REGISTRY     = None
 PREDICTION_LOG = []
 
-PREDICTIONS_TOTAL = Counter(
-    "pharma_predictions_total",
-    "Total predictions made",
-    ["prediction_class", "confidence"]
-)
-PREDICTION_LATENCY = Histogram(
-    "pharma_prediction_latency_seconds",
-    "Prediction request latency",
-    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0]
-)
-MODEL_INFO = Gauge(
-    "pharma_model_info",
-    "Current model metadata",
-    ["model_name", "version"]
-)
-REQUESTS_TOTAL = Counter(
-    "pharma_requests_total",
-    "Total HTTP requests",
-    ["method", "endpoint", "status"]
-)
+PREDICTIONS_TOTAL = _metric(Counter, "pharma_predictions_total", "Total predictions made", ["prediction_class", "confidence"])
+PREDICTION_LATENCY = _metric(Histogram, "pharma_prediction_latency_seconds", "Prediction request latency", buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0])
+MODEL_INFO = _metric(Gauge, "pharma_model_info", "Current model metadata", ["model_name", "version"])
+REQUESTS_TOTAL = _metric(Counter, "pharma_requests_total", "Total HTTP requests", ["method", "endpoint", "status"])
 
 
 class DrugTrialInput(BaseModel):

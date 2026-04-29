@@ -11,40 +11,51 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response
 from config.utils import load_config, get_logger, audit_log
 
-from prometheus_client import (
-    Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
-)
-
-def _metric(cls, name, desc, labels=None, **kwargs):
-    try:
-        return cls(name, desc, labels or [], **kwargs) if labels else cls(name, desc, **kwargs)
-    except ValueError:
-        collectors = list(REGISTRY._names_to_collectors.values())
-        for c in collectors:
-            if hasattr(c, '_name') and c._name in (name, name + '_total'):
-                return c
-        return cls(name, desc, labels or [], **kwargs) if labels else cls(name, desc, **kwargs)
+import prometheus_client
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 logger  = get_logger("serving")
 cfg     = load_config()
-app     = FastAPI(
-    title="Pharma MLOps - Drug Efficacy Prediction API",
-    version="1.0.0"
-)
+app     = FastAPI(title="Pharma MLOps - Drug Efficacy Prediction API", version="1.0.0")
 
 MODEL        = None
 FEATURE_COLS = None
 REGISTRY     = None
 PREDICTION_LOG = []
 
-PREDICTIONS_TOTAL = _metric(Counter, "pharma_predictions_total", "Total predictions made", ["prediction_class", "confidence"])
-PREDICTION_LATENCY = _metric(Histogram, "pharma_prediction_latency_seconds", "Prediction request latency", buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0])
-MODEL_INFO = _metric(Gauge, "pharma_model_info", "Current model metadata", ["model_name", "version"])
-REQUESTS_TOTAL = _metric(Counter, "pharma_requests_total", "Total HTTP requests", ["method", "endpoint", "status"])
+def _unregister(name):
+    for n in [name, name + "_total", name + "_created"]:
+        try:
+            prometheus_client.REGISTRY.unregister(
+                prometheus_client.REGISTRY._names_to_collectors[n]
+            )
+        except Exception:
+            pass
+
+for _n in ["pharma_predictions_total", "pharma_prediction_latency_seconds",
+           "pharma_model_info", "pharma_requests_total"]:
+    _unregister(_n)
+
+PREDICTIONS_TOTAL = Counter(
+    "pharma_predictions_total", "Total predictions made",
+    ["prediction_class", "confidence"]
+)
+PREDICTION_LATENCY = Histogram(
+    "pharma_prediction_latency_seconds", "Prediction request latency",
+    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0]
+)
+MODEL_INFO = Gauge(
+    "pharma_model_info", "Current model metadata",
+    ["model_name", "version"]
+)
+REQUESTS_TOTAL = Counter(
+    "pharma_requests_total", "Total HTTP requests",
+    ["method", "endpoint", "status"]
+)
 
 
 class DrugTrialInput(BaseModel):
@@ -132,7 +143,6 @@ def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
 def predict_single(sample: DrugTrialInput) -> dict:
     import time
     start = time.perf_counter()
-
     row = pd.DataFrame([sample.model_dump()])
     row = add_engineered_features(row)
     available = [c for c in FEATURE_COLS if c in row.columns]
@@ -142,14 +152,8 @@ def predict_single(sample: DrugTrialInput) -> dict:
     p_eff = round(float(prob[1]), 4)
     p_inf = round(float(prob[0]), 4)
     conf  = "high" if max(prob) >= 0.80 else ("medium" if max(prob) >= 0.60 else "low")
-
-    latency = time.perf_counter() - start
-    PREDICTION_LATENCY.observe(latency)
-    PREDICTIONS_TOTAL.labels(
-        prediction_class=str(pred),
-        confidence=conf
-    ).inc()
-
+    PREDICTION_LATENCY.observe(time.perf_counter() - start)
+    PREDICTIONS_TOTAL.labels(prediction_class=str(pred), confidence=conf).inc()
     return {
         "sample_id":              sample.sample_id or f"INFER_{datetime.utcnow().strftime('%H%M%S%f')}",
         "prediction":             pred,

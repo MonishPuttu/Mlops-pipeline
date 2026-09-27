@@ -1,0 +1,1 @@
+My ML pipeline noticed its production data drifting (3 of 12 features, 25% > 15% threshold), retrained itself, re-passed IQ/OQ/PQ validation and promoted model v2 — in 24 seconds. MLflow, FastAPI, Airflow, Prometheus, Grafana, K8s. https://github.com/MonishPuttu/Mlops-pipeline

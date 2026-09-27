@@ -30,3 +30,15 @@ The pipeline was run in a scratch copy of this repo (stages 01–06 run directly
 | 4 | 10.8–14.2 | **Validation** | IQ / OQ / PQ cards pass → "OVERALL STATUS: QUALIFIED" stamp |
 | 5 | 14.2–18.0 | **Self-healing** | patient_age drift histogram, drift share 25% crosses 15% line, 6 stages re-run, v1 → v2 PRODUCTION |
 | 6 | 18.0–21.0 | **Outro** | "Train. Validate. Ship. Watch. Retrain." + stack + GitHub link |
+
+## Voice-over version (44s)
+The final `brag.mp4` is the extended cut with narration. Voice: Kokoro TTS (`af_bella`), generated locally. Each scene's timeline was stretched to fit its line (entrances and transitions keep their original speed; only the hold in the middle of each scene slows down), the soundtrack was re-timed to match, and the music ducks under the voice. Some spellings below are written for the voice, e.g. "Ani-Talk", "R-x Check".
+
+| # | Time | Narration |
+|---|------|-----------|
+| 1 | 0.0–4.7s | Drift alert. The data your model sees in production just changed. |
+| 2 | 4.7–13.8s | This is an end-to-end ML Ops pipeline for drug efficacy prediction, from data ingestion all the way to serving and monitoring. |
+| 3 | 13.8–22.4s | Three models are trained and tracked in M-L flow. The random forest wins, with an F1 score of zero point nine eight six. |
+| 4 | 22.4–30.4s | Before it's registered, pharma-style I-Q, O-Q, and P-Q validation gates check that the model is fit to ship. |
+| 5 | 30.4–37.8s | When monitoring detects drift, the pipeline retrains itself, and promotes version two, in twenty-four seconds. |
+| 6 | 37.8–43.8s | Train. Validate. Ship. Watch. Retrain. The code is on GitHub. |

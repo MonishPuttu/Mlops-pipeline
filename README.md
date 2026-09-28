@@ -1,5 +1,14 @@
 # Pharma MLOps Pipeline — Local Setup
 
+<!-- brag:start -->
+<p align="center">
+  <a href="brag-output/brag.mp4"><img src="brag-output/brag.gif" alt="Pharma MLOps Pipeline launch video" width="100%"></a>
+  <br>
+  <sub>▶ <a href="brag-output/brag.mp4"><b>Watch the full launch video with voice-over</b></a> (43s, sound on)</sub>
+</p>
+<!-- brag:end -->
+
+
 ## Architecture Overview
 ```
 Data Ingestion → Feature Engineering → Model Training → Validation → Registry → Serving → Monitoring
